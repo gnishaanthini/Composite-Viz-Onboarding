@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html style="min-width: 350px; min-height: 380px;">
+<head>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; padding: 15px; background: #f8f9fa; color: #333; }
+        h3 { margin: 0 0 15px 0; font-size: 16px; color: #2c3e50; border-bottom: 2px solid #e9ecef; padding-bottom: 10px; }
+        
+        label { display: block; font-size: 12px; font-weight: bold; margin-bottom: 5px; color: #555; }
+        
+        /* Textarea styling */
+        textarea { 
+            width: 100%; border: 1px solid #ced4da; border-radius: 4px; 
+            padding: 8px; font-family: sans-serif; font-size: 12px; 
+            box-sizing: border-box; resize: vertical; margin-bottom: 15px;
+            height: 80px;
+        }
+
+        /* File Input Styling */
+        input[type="file"] {
+            width: 100%; font-size: 11px; margin-bottom: 15px;
+            padding: 8px; background: #fff; border: 1px dashed #ccc; border-radius: 4px;
+        }
+        
+        button {
+            width: 100%; padding: 12px; border: none; background: #3498db; 
+            color: white; border-radius: 6px; font-weight: 600; cursor: pointer; 
+            transition: background 0.2s; font-size: 13px;
+        }
+        button:hover { background: #2980b9; }
+        button:disabled { background: #95a5a6; cursor: not-allowed; }
+
+        .optional { font-weight: normal; color: #888; font-size: 11px; }
+    </style>
+</head>
+<body>
+    <h3>Visualization Onboarding Generator</h3>
+    
+    <label>Visualization Description <span style="color:red">*</span></label>
+    <textarea id="descInput" placeholder="E.g., This is a Sankey diagram showing energy flow..."></textarea>
+    
+    <label>Upload Code File <span class="optional">(Optional)</span></label>
+    <input type="file" id="fileInput" accept=".js,.jsx,.ts,.tsx,.html,.json,.txt" />
+    
+    <button id="generateBtn">Generate Onboarding</button>
+    
+    <script src="popup.js"></script>
+</body>
+</html>
