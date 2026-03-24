@@ -60,7 +60,6 @@ function selectBestCandidate(component, layoutViews) {
 // ─────────────────────────────────────────────────────────────
 //  SPOTLIGHT HELPER
 // ─────────────────────────────────────────────────────────────
-const SPOTLIGHT_ID = 'vw-spotlight-overlay';
 
 function removeSpotlight() {
     const el = document.getElementById(SPOTLIGHT_ID);
@@ -233,40 +232,65 @@ class VisWalkthrough {
 
     // ── DATA GENERALISATION ────────────────────────────────────
     _generalizeData(rawSteps) {
-        const merged = new Map();
-        const getTitle = (c, id) => {
-            if (!c || !c.reason) return "Component: " + id;
-            return c.reason.toLowerCase()
-                .replace(/^(container for|view of|the|clipping group that contains the)\s+/, '')
+    const merged = new Map();
+
+    // 1. Updated getTitle with strict null checks
+    const getTitle = (step) => {
+        if (!step || !step.targets) return "Component";
+
+        const rawReason = step.targets.raw?.view?.candidates?.[0]?.reason || 
+                         step.targets.raw?.encoding?.candidates?.[0]?.reason;
+
+        if (rawReason) {
+            return rawReason
+                .toLowerCase()
+                .replace(/^(container (group )?for (the )?|view of (the )?|marks that encode )/, '')
                 .split(';')[0]
+                .trim()
                 .replace(/\b\w/g, l => l.toUpperCase());
-        };
-        const categorize = (txt) => {
-            const sentences = txt.replace(/([.?!])\s*(?=[A-Z])/g, "$1|").split("|");
-            const b = { encoding: [], insight: [], interaction: [] };
-            sentences.forEach(s => {
-                const l = s.toLowerCase().trim();
-                if (!l) return;
-                if (l.match(/(click|hover|drag|load|select|update|use the|pan|zoom|interact|press|move)/)) b.interaction.push(s.trim());
-                else if (l.match(/(represent|encode|show|color|glyph|indicate|signifies|blue|red|pink|green|circle|rect|line|link|size|magnitude|gradient|bar)/)) b.encoding.push(s.trim());
-                else b.insight.push(s.trim());
-            });
-            return {
-                encoding: b.encoding.join(' ') || "Visual marks represent data points like balances or function calls.",
-                insight: b.insight.join(' ') || "Observe how this component changes across simulation runs.",
-                interaction: b.interaction.join(' ') || "Hover over elements to see details or click to select a simulation."
-            };
-        };
-        rawSteps.forEach(step => {
-            let main = step.targets?.encoding?.candidates?.[0] || step.targets?.view?.candidates?.[0];
-            let key = main ? main.selector : 'General_Overview';
-            if (!merged.has(key)) {
-                merged.set(key, { step_id: key, title: key === 'General_Overview' ? 'System Dashboard' : getTitle(main, step.step_id), rawText: '', selector: key });
-            }
-            merged.get(key).rawText += ' ' + step.text;
+        }
+
+        return "Visualization Component";
+    };
+
+    const categorize = (txt) => {
+        if (!txt) return { encoding: "", insight: "", interaction: "" };
+        const sentences = txt.replace(/([.?!])\s*(?=[A-Z])/g, "$1|").split("|");
+        const b = { encoding: [], insight: [], interaction: [] };
+        sentences.forEach(s => {
+            const l = s.toLowerCase().trim();
+            if (!l) return;
+            if (l.match(/(click|hover|drag|load|select|update|use the|pan|zoom|interact|press|move)/)) b.interaction.push(s.trim());
+            else if (l.match(/(represent|encode|show|color|glyph|indicate|signifies|blue|red|pink|green|circle|rect|line|link|size|magnitude|gradient|bar)/)) b.encoding.push(s.trim());
+            else b.insight.push(s.trim());
         });
-        return Array.from(merged.values()).map(e => ({ ...e, content: categorize(e.rawText) }));
-    }
+        return {
+            encoding: b.encoding.join(' ') || "Visual marks represent data points in this section.",
+            insight: b.insight.join(' ') || "Observe the patterns and distributions shown here.",
+            interaction: b.interaction.join(' ') || "Interact with this component to see more details."
+        };
+    };
+
+    // 2. Loop with safety check
+    rawSteps.forEach(step => {
+        if (!step) return; // Skip if step itself is undefined
+
+        // Use resolvedSelector as the unique key for grouping
+        let key = step.targets?.resolvedSelector || 'General_Overview';
+        
+        if (!merged.has(key)) {
+            merged.set(key, { 
+                step_id: key, 
+                title: key === 'General_Overview' ? 'System Dashboard' : getTitle(step), // Pass the whole step
+                rawText: '', 
+                selector: key 
+            });
+        }
+        merged.get(key).rawText += ' ' + (step.text || "");
+    });
+
+    return Array.from(merged.values()).map(e => ({ ...e, content: categorize(e.rawText) }));
+}
 
     // ── EXPLORE MODE ───────────────────────────────────────────
     _initExplore() {
@@ -339,45 +363,73 @@ class VisWalkthrough {
         setTimeout(() => insp.classList.add('visible'), 50);
 
         const render = (s) => {
-            this.currentContext = s;
-            const body = document.getElementById('vw-insp-body');
-            if (!body) return;
-            body.innerHTML = `
-        <div class="vw-insp-title">${s.title}</div>
-        <details open class="vw-collapsible-sect">
-          <summary><span class="vw-sect-icon">📐</span> Purpose &amp; Encoding</summary>
-          <div class="vw-insp-txt">${s.content.encoding}</div>
-        </details>
-        <details open class="vw-collapsible-sect">
-          <summary><span class="vw-sect-icon">🔍</span> What to look for</summary>
-          <div class="vw-insp-txt">${s.content.insight}</div>
-        </details>
-        <details open class="vw-collapsible-sect">
-          <summary><span class="vw-sect-icon">🖱️</span> How to interact</summary>
-          <div class="vw-insp-txt">${s.content.interaction}</div>
-        </details>`;
-        };
+        if (!s) return;
+        this.currentContext = s;
+        const body = document.getElementById('vw-insp-body');
+        if (!body) return;
+        
+        // Ensure we are actually updating the DOM
+        body.innerHTML = `
+            <div class="vw-insp-title">${s.title}</div>
+            <details open class="vw-collapsible-sect">
+              <summary><span class="vw-sect-icon">📐</span> Purpose & Encoding</summary>
+              <div class="vw-insp-txt">${s.content.encoding}</div>
+            </details>
+            <details open class="vw-collapsible-sect">
+              <summary><span class="vw-sect-icon">🔍</span> What to look for</summary>
+              <div class="vw-insp-txt">${s.content.insight}</div>
+            </details>
+            <details open class="vw-collapsible-sect">
+              <summary><span class="vw-sect-icon">🖱️</span> How to interact</summary>
+              <div class="vw-insp-txt">${s.content.interaction}</div>
+            </details>`;
+    };
 
-        const overview = steps.find(s => s.step_id === 'General_Overview') || steps[0];
-        render(overview);
+    const overview = steps.find(s => s.step_id === 'General_Overview') || steps[0];
+    render(overview);
 
-        this.exploreHandler = (e) => {
-            if (e.target.closest('#vw-inspector') || e.target.closest('#vw-toggle-bar')) return;
-            let match = null;
-            for (let step of steps) {
-                if (step.selector !== 'General_Overview' && (e.target.matches(step.selector) || e.target.closest(step.selector))) {
-                    match = step; break;
-                }
+    this.exploreHandler = (e) => {
+    if (e.target.closest('#vw-inspector') || e.target.closest('#vw-toggle-bar')) return;
+
+    let match = null;
+    
+    // Get the target and its ancestry once
+    const target = e.target;
+
+    for (let step of steps) {
+        if (step.selector === 'General_Overview' || !step.selector) continue;
+
+        try {
+            // Check if the element or any parent matches the selector
+            // We use closest() because the user is hovering the <rect>, 
+            // but the selector might be the <g> container.
+            if (target.matches(step.selector) || target.closest(step.selector)) {
+                match = step;
+                break;
             }
-            document.querySelectorAll('.vw-ring').forEach(el => el.classList.remove('vw-ring'));
-            if (match) {
-                render(match);
-                const el = e.target.closest(match.selector) || e.target;
-                el.classList.add('vw-ring');
-            } else { render(overview); }
-        };
-        document.body.addEventListener('mouseover', this.exploreHandler);
+        } catch (err) {
+            // If the selector is malformed (common with unescaped transform strings),
+            // skip it so the script doesn't crash
+            continue;
+        }
     }
+
+    // Update the UI only if we found a new component
+    if (match && match !== this.currentContext) {
+        render(match);
+        // Visual feedback
+        document.querySelectorAll('.vw-ring').forEach(el => el.classList.remove('vw-ring'));
+        const highlightEl = target.closest(match.selector) || target;
+        highlightEl.classList.add('vw-ring');
+    } else if (!match && this.currentContext !== overview) {
+        // Fall back to overview if we move to empty space
+        render(overview);
+        document.querySelectorAll('.vw-ring').forEach(el => el.classList.remove('vw-ring'));
+    }
+};
+    
+    document.body.addEventListener('mouseover', this.exploreHandler);
+}
 
     _makeDraggable(el, handle) {
         let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
@@ -812,18 +864,18 @@ class VisWalkthrough {
 
 
     _showStepEditor(stepIndex = null) {
-    const isNew = stepIndex === null;
-    const step = isNew ? { 
-        text: '', 
-        step_type: 'structure', 
-        targets: { resolvedSelector: '' },
-        actions: ['highlight']
-    } : this.steps[stepIndex];
+        const isNew = stepIndex === null;
+        const step = isNew ? {
+            text: '',
+            step_type: 'structure',
+            targets: { resolvedSelector: '' },
+            actions: ['highlight']
+        } : this.steps[stepIndex];
 
-    // Create Modal Overlay
-    const overlay = document.createElement('div');
-    overlay.id = 'vw-editor-overlay';
-    overlay.innerHTML = `
+        // Create Modal Overlay
+        const overlay = document.createElement('div');
+        overlay.id = 'vw-editor-overlay';
+        overlay.innerHTML = `
         <div id="vw-editor-modal">
             <h3>${isNew ? 'Add New Step' : 'Edit Step'}</h3>
             
@@ -852,104 +904,104 @@ class VisWalkthrough {
             </div>
         </div>
     `;
-    document.body.appendChild(overlay);
+        document.body.appendChild(overlay);
 
-    // --- PICKER LOGIC ---
-    document.getElementById('vw-btn-pick').onclick = () => {
-        overlay.style.display = 'none'; // Hide modal temporarily
-        const svg = document.querySelector('svg');
-        svg.style.cursor = 'crosshair';
+        // --- PICKER LOGIC ---
+        document.getElementById('vw-btn-pick').onclick = () => {
+            overlay.style.display = 'none'; // Hide modal temporarily
+            const svg = document.querySelector('svg');
+            svg.style.cursor = 'crosshair';
 
-        const onSvgClick = (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            
-            // Try to find a meaningful group or the clicked element
-            const target = e.target.closest('g') || e.target;
-            let selector = target.id ? `#${target.id}` : 
-                          target.getAttribute('class') ? `${target.tagName}.${target.getAttribute('class').split(' ')[0]}` : 
-                          target.tagName;
-            
-            document.getElementById('edt-selector').value = selector;
-            
-            // Cleanup
-            svg.style.cursor = 'default';
-            svg.removeEventListener('click', onSvgClick, true);
-            overlay.style.display = 'flex'; // Show modal again
-        };
-        svg.addEventListener('click', onSvgClick, true);
-    };
+            const onSvgClick = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
 
-    // --- SAVE LOGIC ---
-    document.getElementById('vw-modal-save').onclick = () => {
-        const newText = document.getElementById('edt-text').value;
-        const newType = document.getElementById('edt-type').value;
-        const newSel  = document.getElementById('edt-selector').value;
+                // Try to find a meaningful group or the clicked element
+                const target = e.target.closest('g') || e.target;
+                let selector = target.id ? `#${target.id}` :
+                    target.getAttribute('class') ? `${target.tagName}.${target.getAttribute('class').split(' ')[0]}` :
+                        target.tagName;
 
-        const actionMap = {
-        'structure': ['highlight'],
-        'encoding': ['highlight', 'glow', 'annotation'],
-        'data': ['highlight', 'annotation'],
-        'analytical': ['highlight', 'trace', 'annotation'],
-        'interaction': ['highlight', 'pulse', 'wait_for_interaction', 'annotation']
-    };
+                document.getElementById('edt-selector').value = selector;
 
-
-        const updatedStep = {
-            ...step,
-            text: document.getElementById('edt-text').value,
-            step_type: document.getElementById('edt-type').value,
-            targets: { resolvedSelector: document.getElementById('edt-selector').value },
-            actions: actionMap[newType] || ['highlight']
+                // Cleanup
+                svg.style.cursor = 'default';
+                svg.removeEventListener('click', onSvgClick, true);
+                overlay.style.display = 'flex'; // Show modal again
+            };
+            svg.addEventListener('click', onSvgClick, true);
         };
 
-        if (isNew) this.steps.push(updatedStep);
-        else this.steps[stepIndex] = updatedStep;
+        // --- SAVE LOGIC ---
+        document.getElementById('vw-modal-save').onclick = () => {
+            const newText = document.getElementById('edt-text').value;
+            const newType = document.getElementById('edt-type').value;
+            const newSel = document.getElementById('edt-selector').value;
 
-        overlay.remove();
-        this._teardown();
-        this._initEditMode(); // Refresh UI
-    };
+            const actionMap = {
+                'structure': ['highlight'],
+                'encoding': ['highlight', 'glow', 'annotation'],
+                'data': ['highlight', 'annotation'],
+                'analytical': ['highlight', 'trace', 'annotation'],
+                'interaction': ['highlight', 'pulse', 'wait_for_interaction', 'annotation']
+            };
 
-    document.getElementById('vw-modal-cancel').onclick = () => overlay.remove();
-}
+
+            const updatedStep = {
+                ...step,
+                text: document.getElementById('edt-text').value,
+                step_type: document.getElementById('edt-type').value,
+                targets: { resolvedSelector: document.getElementById('edt-selector').value },
+                actions: actionMap[newType] || ['highlight']
+            };
+
+            if (isNew) this.steps.push(updatedStep);
+            else this.steps[stepIndex] = updatedStep;
+
+            overlay.remove();
+            this._teardown();
+            this._initEditMode(); // Refresh UI
+        };
+
+        document.getElementById('vw-modal-cancel').onclick = () => overlay.remove();
+    }
 
     _initEditMode() {
-    this._initScrolly();
-    document.body.classList.add('vw-editing');
-    
-    // 1. Change the "Add" button to trigger the modal
-    const stepsScroll = document.getElementById('vw-steps-scroll');
-    const addBtn = document.createElement('button');
-    addBtn.innerText = "+ Create New Step";
-    addBtn.className = "vw-action-btn";
-    addBtn.onclick = () => this._showStepEditor();
-    stepsScroll.prepend(addBtn);
+        this._initScrolly();
+        document.body.classList.add('vw-editing');
 
-    // 2. Add Edit/Save buttons to each card
-    document.querySelectorAll('.vw-step').forEach((stepDiv, i) => {
-        const card = stepDiv.querySelector('.vw-card');
-        const btnContainer = document.createElement('div');
-        btnContainer.style.cssText = "display:flex; justify-content:flex-end; gap:5px; margin-top:10px;";
-        
-        btnContainer.innerHTML = `
+        // 1. Change the "Add" button to trigger the modal
+        const stepsScroll = document.getElementById('vw-steps-scroll');
+        const addBtn = document.createElement('button');
+        addBtn.innerText = "+ Create New Step";
+        addBtn.className = "vw-action-btn";
+        addBtn.onclick = () => this._showStepEditor();
+        stepsScroll.prepend(addBtn);
+
+        // 2. Add Edit/Save buttons to each card
+        document.querySelectorAll('.vw-step').forEach((stepDiv, i) => {
+            const card = stepDiv.querySelector('.vw-card');
+            const btnContainer = document.createElement('div');
+            btnContainer.style.cssText = "display:flex; justify-content:flex-end; gap:5px; margin-top:10px;";
+
+            btnContainer.innerHTML = `
             <button class="vw-edit-card-btn" style="font-size:10px; cursor:pointer;">Edit Details</button>
             <button class="vw-save-card-btn" style="font-size:10px; cursor:pointer; background:#27ae60; color:white; border:none; border-radius:3px;">Save</button>
         `;
-        
-        card.appendChild(btnContainer);
 
-        // Edit button triggers the Modal
-        btnContainer.querySelector('.vw-edit-card-btn').onclick = () => this._showStepEditor(i);
-        
-        // Quick Save (for text changes made directly in the card)
-        btnContainer.querySelector('.vw-save-card-btn').onclick = () => {
-            const textEl = card.querySelector('.vw-step-text');
-            this.steps[i].text = textEl.innerText;
-            alert('Step text saved!');
-        };
-    });
-}
+            card.appendChild(btnContainer);
+
+            // Edit button triggers the Modal
+            btnContainer.querySelector('.vw-edit-card-btn').onclick = () => this._showStepEditor(i);
+
+            // Quick Save (for text changes made directly in the card)
+            btnContainer.querySelector('.vw-save-card-btn').onclick = () => {
+                const textEl = card.querySelector('.vw-step-text');
+                this.steps[i].text = textEl.innerText;
+                alert('Step text saved!');
+            };
+        });
+    }
 
     // ── SCROLLY (with breadcrumb) ──────────────────────────────
     _initScrolly() {
@@ -968,8 +1020,8 @@ class VisWalkthrough {
         const total = this.steps.length;
 
         const bcBar = document.createElement('div');
-bcBar.id = 'vw-breadcrumb';
-bcBar.innerHTML = `
+        bcBar.id = 'vw-breadcrumb';
+        bcBar.innerHTML = `
     <div style="display:flex; justify-content:space-between; align-items:flex-start;">
         <div>
             <div class="vw-bc-label">Progress</div>
@@ -979,15 +1031,15 @@ bcBar.innerHTML = `
     </div>
     <div class="vw-bc-counter">Step <strong id="vw-bc-num">1</strong> of <strong>${total}</strong></div>
 `;
-right.appendChild(bcBar);
+        right.appendChild(bcBar);
 
-// Event Listener for the start button
-bcBar.querySelector('#vw-start-audio').onclick = (e) => {
-    this.narrationStarted = true;
-    const currentStep = this.steps[this._currentStepIdx || 0];
-    this._speak(currentStep.text);
-    e.target.style.display = 'none'; // Hide after starting
-};
+        // Event Listener for the start button
+        bcBar.querySelector('#vw-start-audio').onclick = (e) => {
+            this.narrationStarted = true;
+            const currentStep = this.steps[this._currentStepIdx || 0];
+            this._speak(currentStep.text);
+            e.target.style.display = 'none'; // Hide after starting
+        };
 
         const track = bcBar.querySelector('#vw-bc-track');
         for (let i = 0; i < total; i++) {
@@ -1277,7 +1329,7 @@ async function getSVGAsBitmap(svgElement) {
     });
 }
 
-async function semanticInference(svgContent, description, b64Image, apiKey) {
+async function semanticInference(svgContent, description, b64Image, apiKey, code) {
 
     try {
         let messages = [{
@@ -1300,17 +1352,59 @@ async function semanticInference(svgContent, description, b64Image, apiKey) {
     5) Interaction Knowledge
 
     --------------------------------
-    STRATEGIC NARRATIVE RULES (NEW)
+    STRATEGIC NARRATIVE RULES 
     --------------------------------
     - Relational Logic: Explain how views relate to one another (e.g., if one view filters another, or if a header is shared between two charts).
     - Dual-Encoding Clarity: If a single mark uses multiple channels (e.g., color and size), explain how to interpret them in tandem.
-    - Action-Oriented Language: Use active verbs (e.g., "Scan the diagonal," "Follow the color gradient," "Identify clusters") to guide the user's eye.
+    - Action-Oriented Language: Use short directives that guide attention (e.g., "Look at the colored dots," "Follow the bars from left to right").
     - The "Aha" Moment: Include at least one analytical insight that describes a pattern unique to this specific visualization type.
 
     KEYWORD ANCHORING: You must use specific "mark-based" keywords in your explanation_text to describe data points. Use words like "individual card," "colored dot," "outlined box," or "specific mark." Avoid aggregate terms like "the layout," "the panel," or "the area" when describing data knowledge or visual encodings.
-    -------------------------------- PRECISION & ATOMIC TARGETING (CRITICAL) --------------------------------
-    - Target the "Atomic" Mark: When explaining visual encodings or data points, do NOT describe the background region or the container. You must focus your description on the specific, smallest visual units that encode data (e.g., the individual dots, bars, cards, or glyphs). - Hierarchy Awareness: If a visualization has elements nested inside regions (like cards inside a container), your text must explicitly refer to the nested elements. Avoid vague language like "this area"; instead use "the individual marks within this area." - Disambiguation: Ensure your explanation allows a downstream system to distinguish between a "set container" (the big shape) and an "element glyph" (the small shape).
+    -------------------------------- 
+    PRECISION & ATOMIC TARGETING (CRITICAL) 
+    --------------------------------
+    - Target the "Atomic" Mark: 
+  When explaining visual encodings or data points, focus on the smallest visual units that encode data (dots, bars, glyphs).
 
+  Structural and workflow explanations may refer to entire views when describing layout or relationships between views.
+
+    --------------------------------
+    CONCEPTUAL FRAMING RULE (CRITICAL)
+    --------------------------------
+
+    Before explaining visual encodings, the onboarding must establish the conceptual purpose of the visualization.
+
+    The first structural steps must answer:
+
+    1. What is the overall goal of this visualization?
+    2. What are the main modules or views that support this goal?
+    3. What role does each view play in the analysis workflow?
+
+    For composite visualizations that contain overview–detail structures, explicitly explain:
+
+    - which view provides a high-level summary
+    - which view provides detailed information
+    - how users move between them
+
+    Do NOT begin onboarding with mark-level explanations (dots, rectangles, curves) until the conceptual roles of the views are clear.
+
+    --------------------------------
+    CROSS-VIEW COORDINATION RULE
+    --------------------------------
+
+    Composite visualizations often rely on relationships between views.
+
+    At least TWO explanation steps must explicitly describe how views are connected.
+
+    Examples of relationships include:
+
+    - overview → detail navigation
+    - filtering or selection between views
+    - highlighting relationships
+    - shared axes or timelines
+    - causal relationships between views (e.g., events in one view produce changes in another)
+
+    These coordination steps must explain how a user should move their attention between views to understand the data.
     --------------------------------
     IMPORTANT CONSTRAINTS
     --------------------------------
@@ -1362,6 +1456,10 @@ async function semanticInference(svgContent, description, b64Image, apiKey) {
     - Explain EXACTLY ONE concept
     - Belong to ONE knowledge category only
 
+    Each explanation step must communicate only ONE idea.
+
+    If an explanation requires multiple ideas, split them into separate steps.
+
     Your goal is to guide a user's eye. CRITICAL RULE: Do not default to target_view_id: "multiple".
     Use "multiple" ONLY for the very first structural step describing the overall layout.
 
@@ -1381,7 +1479,25 @@ async function semanticInference(svgContent, description, b64Image, apiKey) {
 
     4) ANALYTICAL KNOWLEDGE
     - Explain insights, trends, comparisons, or relationships
-    - Describe how to interpret patterns (e.g., "A concentration of large marks here indicates...")
+    - Analytical explanations must teach the user HOW to interpret patterns
+
+    Each analytical step must include:
+    1. A visual pattern to look for
+    2. What that pattern means in the data
+    3. Why the pattern matters for analysis
+
+    Examples of meaningful patterns include:
+    - repeated sequences
+    - unusual spikes or drops
+    - sustained increases or decreases
+    - asymmetric flows
+    - clusters or outliers
+    - cause–effect relationships between views
+
+    Avoid vague statements like:
+    "Trends can be observed here."
+
+    Instead guide the user’s eye toward a specific pattern in the marks.
 
     5) INTERACTION KNOWLEDGE
     - Infer and describe supported interactions (e.g., hover, filter, brush, zoom)
@@ -1391,6 +1507,42 @@ async function semanticInference(svgContent, description, b64Image, apiKey) {
     - Combine multiple knowledge categories into a single step
     - Describe low-level SVG or implementation details
     - Treat multiple individual charts as one view
+
+    --------------------------------
+    Brevity and Cognitive Load Rules (CRITICAL)
+    --------------------------------
+
+    The explanation_text is written for novice users who are seeing the visualization for the first time.
+
+    To reduce cognitive load:
+
+    - Each explanation_text MUST be short and concise.
+    - Limit each explanation to **1–2 sentences maximum**.
+    - Prefer **15–35 words per step** when possible.
+    - Use simple, direct language.
+
+    Avoid:
+    - long paragraphs
+    - multi-clause explanations
+    - theoretical descriptions
+    - repeating information already explained in earlier steps
+
+    Each step should communicate **only the essential idea needed to move the user’s attention forward**.
+
+    COGNITIVE LOAD STRUCTURING RULE
+
+    When a visualization contains many visual encodings, explanations must be introduced progressively.
+
+    Recommended order of explanation:
+
+    1. Structural overview
+    2. View purpose and data context
+    3. Primary visual encodings
+    4. Secondary visual encodings
+    5. Analytical interpretation
+    6. Interaction mechanisms
+
+    Avoid introducing many different visual encodings consecutively without explaining their analytical role.
 
     --------------------------------
     OUTPUT FORMAT (STRICT)
@@ -1426,12 +1578,38 @@ async function semanticInference(svgContent, description, b64Image, apiKey) {
     - Coordination: If views are linked (e.g., shared headers), at least one step must explain that connection.
     - If interactions are visible, include interaction steps.
     - Use conservative judgments; if unsure, mark chart_type as "unknown".
+    - explanation_text must never exceed 2 sentences.
+    Workflow Guidance Requirement:
+    At least one explanation step must describe the typical analysis workflow supported by the visualization.
+
+    This step should explain how a user should move through the views to investigate insights.
+
+    Examples:
+    - start with an overview to identify interesting cases
+    - select a case to inspect detailed behavior
+    - examine supporting views to understand causes or consequences
 
     IMPORTANT:
     - Do NOT describe what you intend to explain.
     - Do NOT summarize or label the step.
     - You MUST write the actual explanation text a user would read during onboarding.
     - The explanation_text should be understandable without referencing SVG, code, or system concepts.
+
+        --------------------------------
+    STYLE EXAMPLES
+    --------------------------------
+
+    Good explanation_text examples:
+
+    ✔ "Each colored dot represents one country. Its horizontal position shows GDP, while the vertical position shows life expectancy."
+
+    ✔ "Look at the cluster of large circles near the top-right. These marks indicate countries with both high GDP and high life expectancy."
+
+    ✔ "The legend connects colors to categories. Use it to identify which dots belong to each region."
+
+    Avoid long explanations like:
+
+    ✘ "This visualization provides a comprehensive representation of the relationships between multiple economic indicators across different nations..."
 
     --------------------------------
     INPUT
@@ -1445,6 +1623,11 @@ async function semanticInference(svgContent, description, b64Image, apiKey) {
                 {
                     "type": "text", "text": `
     ## Composite Visualization Input
+
+    ### VISUALIZATION CONTEXT
+    **User Description:** ${description}
+    **Implementation Code (D3.js):**
+    ${code || "No source code provided."}
 
     ### SVG
     ${svgContent}
@@ -1586,7 +1769,7 @@ async function semanticGrounding(svgContent, viewIdList, b64Image, apiKey) {
                 'Authorization': `Bearer ${apiKey}`
             },
             body: JSON.stringify({
-                model: "gpt-5", 
+                model: "gpt-5",
                 messages: messages,
             })
         })
@@ -1604,7 +1787,7 @@ async function semanticGrounding(svgContent, viewIdList, b64Image, apiKey) {
 
 }
 
-async function generateDynamicOnboarding(svgContent, description, b64Image, apiKey) {
+async function generateDynamicOnboarding(svgContent, description, b64Image, apiKey, code) {
     updateLoadingProgress("Performing Semantic Inference...", 25);
     // ⚠️ REPLACE THIS WITH YOUR ACTUAL KEY
     if (!apiKey || apiKey.includes('YOUR_OPENAI')) {
@@ -1613,7 +1796,7 @@ async function generateDynamicOnboarding(svgContent, description, b64Image, apiK
     }
 
 
-    narrativeData = await semanticInference(svgContent, description, b64Image, apiKey);
+    narrativeData = await semanticInference(svgContent, description, b64Image, apiKey, code);
 
     console.log("Narrative Data from LLM:", narrativeData);
 
@@ -1645,13 +1828,15 @@ async function generateDynamicOnboarding(svgContent, description, b64Image, apiK
             'encoding': ['highlight', 'glow', 'annotation'],
             'data': ['highlight', 'annotation'],
             'analytical': ['highlight', 'trace', 'annotation'],
-            'interaction': ['highlight', 'pulse', 'wait_for_interaction', 'annotation']
+            'interaction': ['glow','pulse', 'annotation']
         };
 
         return {
             step_id: `step_${i + 1}`,
             text: step.explanation_text,
+            step_type: step.step_type,
             targets: {
+                target_view_id: viewId,
                 resolvedSelector: bestSelector,
                 raw: componentMapping // Keep raw for debugging
             },
@@ -1668,7 +1853,8 @@ async function generateDynamicOnboarding(svgContent, description, b64Image, apiK
 if (typeof chrome !== "undefined" && chrome.runtime) {
     chrome.runtime.onMessage.addListener(async (request, sender, sendResponse) => {
         if (request.action === "GENERATE_AND_LAUNCH") {
-            const { description } = request.payload;
+            const { description, code } = request.payload;
+            console.log("Received request to generate onboarding with description:", description);
             const svgElement = document.querySelector('svg');
             if (!svgElement) { alert("No SVG found on this page!"); return; }
             showLoadingToast();
@@ -1679,15 +1865,16 @@ if (typeof chrome !== "undefined" && chrome.runtime) {
                 const apiKey = tempInstance.apiKey;
                 // 1. Run the live pipeline from your notebook
                 const dynamicSteps = await generateDynamicOnboarding(
-                    svgElement.outerHTML, 
-                    description, 
+                    svgElement.outerHTML,
+                    description,
                     b64Image,
-                    apiKey
+                    apiKey,
+                    code
                 );
                 updateLoadingProgress("Generating Scrollytelling...", 90);
                 setTimeout(() => {
-                removeLoadingToast();
-            }, 800);
+                    removeLoadingToast();
+                }, 800);
                 // removeLoadingToast();
                 if (window.visWalkthroughInstance) window.visWalkthroughInstance._teardown();
                 window.visWalkthroughInstance = new VisWalkthrough({ steps: dynamicSteps, bitmap: b64Image });
@@ -1703,7 +1890,7 @@ if (typeof chrome !== "undefined" && chrome.runtime) {
 }
 
 function showLoadingToast(initialStatus = "Initializing...") {
-    if(document.getElementById('vw-loading-toast')) {
+    if (document.getElementById('vw-loading-toast')) {
         updateLoadingProgress(initialStatus);
         return;
     }
