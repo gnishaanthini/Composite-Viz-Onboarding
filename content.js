@@ -203,7 +203,7 @@ class VisWalkthrough {
         this.isAuthorMode = true;
         this.currentContext = null;
         this.chatHistory = [];
-        this.apiKey = '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';
+        this.apiKey = '';
         this._currentStepIdx = 0;
         this.synth = window.speechSynthesis;
         this.isMuted = false;
