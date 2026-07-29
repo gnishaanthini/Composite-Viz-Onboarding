@@ -29,8 +29,3 @@ VizPilot is a browser extension that automatically generates interactive onboard
 
 VizPilot analyzes the visualization and generates an interactive onboarding sequence directly on the webpage. Authors can review, edit, and deploy the generated onboarding experience.
 
-## Requirements
-
-- Google Chrome or Microsoft Edge
-- An SVG-based composite visualization with an accessible DOM
-- *(Optional)* Interaction source code for explaining interactive behaviors
