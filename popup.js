@@ -1,9 +1,37 @@
+const apiKeyInput = document.getElementById('apiKeyInput');
+const rememberKey = document.getElementById('rememberKey');
+const settingsStatus = document.getElementById('settingsStatus');
+const settingsReady = chrome.storage.local.get('openaiApiKey').then(({ openaiApiKey }) => {
+    apiKeyInput.value = openaiApiKey || '';
+    rememberKey.checked = Boolean(openaiApiKey);
+}).catch(() => {
+    settingsStatus.textContent = 'Could not load saved key. Enter it manually.';
+});
+
+document.getElementById('forgetKeyBtn').addEventListener('click', async () => {
+    await settingsReady;
+    try {
+        await chrome.storage.local.remove('openaiApiKey');
+        apiKeyInput.value = '';
+        rememberKey.checked = false;
+        settingsStatus.textContent = 'Saved key removed. Refresh visualization tabs to clear keys already in use.';
+    } catch {
+        settingsStatus.textContent = 'Could not remove saved key. Please try again.';
+    }
+});
+
 document.getElementById('generateBtn').addEventListener('click', async () => {
+    await settingsReady;
+    const apiKey = apiKeyInput.value.trim();
     const desc = document.getElementById('descInput').value.trim();
     const fileInput = document.getElementById('fileInput');
     const btn = document.getElementById('generateBtn');
 
     // 1. Basic Validation
+    if (!apiKey) {
+        alert('Please enter your OpenAI API key.');
+        return;
+    }
     if (!desc) {
         alert("Please provide a description of the visualization.");
         return;
@@ -14,6 +42,11 @@ document.getElementById('generateBtn').addEventListener('click', async () => {
     btn.disabled = true;
 
     try {
+        if (rememberKey.checked) {
+            await chrome.storage.local.set({ openaiApiKey: apiKey });
+        } else {
+            await chrome.storage.local.remove('openaiApiKey');
+        }
         // 3. Read File Content (if a file was selected)
         let codeContent = "";
         if (fileInput.files.length > 0) {
@@ -29,6 +62,7 @@ document.getElementById('generateBtn').addEventListener('click', async () => {
             action: "GENERATE_AND_LAUNCH",
             payload: {
                 description: desc,
+                apiKey,
                 code: codeContent // This is now the actual text from the file
             }
         });

@@ -34,6 +34,12 @@
 </head>
 <body>
     <h3>Visualization Onboarding Generator</h3>
+    <label for="apiKeyInput">OpenAI API Key</label>
+    <input type="password" id="apiKeyInput" autocomplete="off" spellcheck="false" placeholder="Enter your own API key" style="width:100%;box-sizing:border-box;padding:8px;margin-bottom:8px;" />
+    <label><input type="checkbox" id="rememberKey" /> Remember key on this device</label>
+    <button id="forgetKeyBtn" type="button" style="margin-bottom:8px;">Forget saved key</button>
+    <p style="font-size:11px;">Remembered keys are stored in this browser profile, not encrypted. Generation sends visualization content and uploaded code to OpenAI using your account.</p>
+    <p id="settingsStatus" role="status" style="font-size:12px;"></p>
     
     <label>Visualization Description <span style="color:red">*</span></label>
     <textarea id="descInput" placeholder="E.g., This is a Sankey diagram showing energy flow..."></textarea>

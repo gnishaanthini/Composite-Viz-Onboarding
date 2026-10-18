@@ -203,7 +203,7 @@ class VisWalkthrough {
         this.isAuthorMode = true;
         this.currentContext = null;
         this.chatHistory = [];
-        this.apiKey = '';
+        this.apiKey = config.apiKey || '';
         this._currentStepIdx = 0;
         this.synth = window.speechSynthesis;
         this.isMuted = false;
@@ -1791,7 +1791,7 @@ async function generateDynamicOnboarding(svgContent, description, b64Image, apiK
     updateLoadingProgress("Performing Semantic Inference...", 25);
     // ⚠️ REPLACE THIS WITH YOUR ACTUAL KEY
     if (!apiKey || apiKey.includes('YOUR_OPENAI')) {
-        alert("Please configure your OpenAI API Key in the code first.");
+        alert("Please enter your OpenAI API key in the VizPilot popup first.");
         return [];
     }
 
@@ -1853,7 +1853,7 @@ async function generateDynamicOnboarding(svgContent, description, b64Image, apiK
 if (typeof chrome !== "undefined" && chrome.runtime) {
     chrome.runtime.onMessage.addListener(async (request, sender, sendResponse) => {
         if (request.action === "GENERATE_AND_LAUNCH") {
-            const { description, code } = request.payload;
+            const { description, code, apiKey } = request.payload;
             console.log("Received request to generate onboarding with description:", description);
             const svgElement = document.querySelector('svg');
             if (!svgElement) { alert("No SVG found on this page!"); return; }
@@ -1861,8 +1861,6 @@ if (typeof chrome !== "undefined" && chrome.runtime) {
             try {
                 showLoadingToast("Capturing SVG...");
                 const b64Image = await getSVGAsBitmap(svgElement);
-                const tempInstance = new VisWalkthrough({});
-                const apiKey = tempInstance.apiKey;
                 // 1. Run the live pipeline from your notebook
                 const dynamicSteps = await generateDynamicOnboarding(
                     svgElement.outerHTML,
@@ -1877,7 +1875,7 @@ if (typeof chrome !== "undefined" && chrome.runtime) {
                 }, 800);
                 // removeLoadingToast();
                 if (window.visWalkthroughInstance) window.visWalkthroughInstance._teardown();
-                window.visWalkthroughInstance = new VisWalkthrough({ steps: dynamicSteps, bitmap: b64Image });
+                window.visWalkthroughInstance = new VisWalkthrough({ steps: dynamicSteps, bitmap: b64Image, apiKey });
                 window.visWalkthroughInstance.init();
                 window.visWalkthroughInstance.setMode('edit');
             } catch (error) {
